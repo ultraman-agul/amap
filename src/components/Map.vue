@@ -92,7 +92,7 @@ const props = defineProps({
         }),
     },
     // 是否绘制线条
-    isDrawPolyLine: { type: Boolean, default: true },
+    isDrawPolyLine: { type: Boolean, default: false },
     // 线条数据
     polyLineData: {
         type: Array,
@@ -222,9 +222,93 @@ const props = defineProps({
             },
         ],
     },
+    // 地图Loca配置
+    locaConfig: {
+        type: Object,
+        default: () => ({
+            // 是否展示
+            show: true,
+            // 资源类型 url(geoJson地址) data(geoJson数据)
+            sourceType: "data",
+            // 缓冲线脚本版本号，目前是基于2.0开发的
+            version: "2.0",
+        }),
+    },
+    // 脉冲线数据
+    locaData: {
+        type: Object,
+        default: () => ({
+            // 当脉冲线sourceType为url时必传
+            geoJsonUrl: "",
+            // 当脉冲线sourceType为data时必传
+            geoJsonData: {
+                type: "FeatureCollection",
+                features: [
+                    {
+                        type: "Feature",
+                        // id保持唯一，如果用其他平台获取geoJson数据的话自带有id
+                        id: 3657,
+                        // properties里面的属性可以自由扩展
+                        properties: { _draw_type: "line" },
+                        geometry: {
+                            type: "LineString",
+                            // 脉冲线由哪些点位坐标组成
+                            coordinates: [
+                                [112.72571, 24.449534],
+                                [113.245419, 24.168629],
+                                [113.194628, 23.791832]
+                            ],
+                        },
+                        // 脉冲头和脉冲尾的坐标
+                        bbox: [112.72571, 24.449534, 113.194628, 23.791832],
+                    },
+                    {
+                        type: "Feature",
+                        id: 4901,
+                        properties: { _draw_type: "line" },
+                        geometry: {
+                            type: "LineString",
+                            coordinates: [
+                                [112.623349, 24.045431],
+                                [112.793974, 23.74417]
+                            ],
+                        },
+                        bbox: [112.623349, 24.045431, 112.793974, 23.74417],
+                    },
+                ],
+            },
+            // 脉冲线图层样式
+            globalStyle: {
+                // 图层显示层级
+                zIndex: 10,
+                // 图层整体透明度
+                opacity: 1,
+                // 图层是否可见
+                visible: true,
+                // 图层缩放等级[0-20]
+                zooms: [2, 22],
+            },
+            // 脉冲线样式
+            layerStyle: {
+                // 线整体海拔高度，Number
+                altitude: 0,
+                // 脉冲线的宽度
+                lineWidth: 10,
+                // 脉冲头颜色
+                headColor: "rgba(227,43,43,0.4)",
+                // 脉冲尾颜色
+                trailColor: "rgba(0,0,0, 0)",
+                // 脉冲长度，0.25 表示一段脉冲占整条路的 1/4
+                interval: 0.75,
+                // 脉冲线的速度，几秒钟跑完整段路
+                duration: 2000,
+            },
+        }),
+    },
 })
 const mapInstance = ref<any>(null) // 地图实例
 let myAMap: any //
+const locaInstance = ref(null)
 
 // 渲染地图边界线
 const renderPolyLine = (bounds = []) => {
@@ -241,6 +325,7 @@ const renderPolyLine = (bounds = []) => {
         })
     }
 }
+
 // 定义一个渲染3d墙体的方法
 const render3dWall = (bounds = []) => {
     const { object3dWallConfig, apiConfig } = props
@@ -330,7 +415,6 @@ const renderLine = () => {
     }
 }
 
-
 // 渲染点位
 const renderPoint = () => {
     const { isDrawPoint, pointData }: any = props
@@ -367,6 +451,72 @@ const renderPoint = () => {
         massMarks.show = false
         // 渲染批量点位使用MassMarks对象，相当于添加新的图层 - END
     }
+}
+
+// 渲染脉冲线
+const renderLoca = () => {
+    const { locaConfig, locaData } = props
+
+    // 未开启脉冲线
+    if (!locaConfig.show) return
+
+    // 初始化脉冲线容器
+    locaInstance.value = new Loca.Container({
+        map: mapInstance.value,
+    })
+
+    // 获取geoJson数据
+    const sourceParams = {}
+    // sourceType与data.locaData的key的映射关系
+    const sourceTypeToDataKey = {
+        url: "geoJsonUrl",
+        data: "geoJsonData",
+    }
+    sourceParams[locaConfig.sourceType] = locaData[sourceTypeToDataKey[locaConfig.sourceType]]
+    // 读取指定资源
+    const geo = new Loca.GeoJSONSource(sourceParams)
+    // 添加脉冲线图层
+    const layer = new Loca.PulseLineLayer({
+        loca: locaInstance.value,
+        // 图层显示层级
+        zIndex: locaData.globalStyle.zIndex,
+        // 图层整体透明度
+        opacity: locaData.globalStyle.opacity,
+        // 图层是否可见
+        visible: locaData.globalStyle.visible,
+        // 图层缩放等级[0-20]
+        zooms: locaData.globalStyle.zooms,
+    })
+
+    // 将geoJson数据加载给脉冲线图层
+    layer.setSource(geo)
+
+    // 设置脉冲线样式
+    layer.setStyle({
+        // 线整体海拔高度，Number
+        altitude: locaData.layerStyle.altitude,
+        // 脉冲线的宽度
+        lineWidth: locaData.layerStyle.lineWidth,
+        // 脉冲头颜色locaData.layerStyle.headColor
+        headColor: "#ff0000",
+        // 脉冲尾颜色
+        trailColor: "#0099ff",
+        // 脉冲头和脉冲尾的值可以是个回调函数，回调函数里面的第二个参数就能拿到你的geoJson数据项，可以根据里面的唯一值来取对应的颜色
+        // trailColor: (_, feature) =>
+        // feature.properties.type
+        //     ? DeviceTypeToLocaLayerTrailColor[feature.properties.type]
+        //     : locaData.layerStyle.trailColor,
+        // 脉冲长度，0.25 表示一段脉冲占整条路的 1/4
+        interval: locaData.layerStyle.interval,
+        // 脉冲线的速度，几秒钟跑完整段路
+        duration: locaData.layerStyle.duration,
+    })
+
+    // 添加脉冲线图层到脉冲线容器
+    locaInstance.value.add(layer)
+
+    // 开始动画
+    locaInstance.value.animate.start()
 }
 
 // 初始化地图
@@ -414,6 +564,7 @@ const initMapInstance = (AMap: any) => {
         render3dWall(bounds) // 渲染墙体
         renderLine() // 渲染线条
         renderPoint() // 渲染点位
+        renderLoca() // 渲染脉冲线
     })
 
 }
@@ -422,6 +573,10 @@ const loadAMap = () => {
         key: props.apiConfig.key,
         version: props.apiConfig.version,
         plugins: props.apiConfig.plugins,// 使用到的插件
+        // 加载Loca脉冲线才有效果
+        Loca: {
+            version: props.locaConfig.version,
+        },
     }).then((AMap) => {
         initMapInstance(AMap)
     })
