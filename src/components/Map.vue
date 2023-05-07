@@ -4,7 +4,8 @@
 
 <script setup lang="ts">
 import AMapLoader from '@amap/amap-jsapi-loader'
-
+// 引入红色预警的图片
+import breathRedPng from "@/assets/breath_red.png"
 
 const props = defineProps({
     mapStyle: {
@@ -305,10 +306,18 @@ const props = defineProps({
             },
         }),
     },
+    // 是否显示预警点位动画
+    isShowPointWarning: { type: Boolean, default: true },
+    // 预警点位集合
+    warningList: {
+        type: Array,
+        default: () => [[112.78135, 24.20903]],
+    },
 })
 const mapInstance = ref<any>(null) // 地图实例
-let myAMap: any //
-const locaInstance = ref(null)
+const AMap = window.AMap
+const Loca = window.Loca
+const locaInstance = ref(null) as any
 
 // 渲染地图边界线
 const renderPolyLine = (bounds = []) => {
@@ -317,7 +326,7 @@ const renderPolyLine = (bounds = []) => {
         return
     }
     for (let i = 0; i < bounds.length; i++) {
-        new myAMap.Polyline({
+        new AMap.Polyline({
             path: bounds[i],
             strokeColor: polylineConfig.strokeColor,
             strokeWeight: polylineConfig.strokeWeight,
@@ -333,11 +342,11 @@ const render3dWall = (bounds = []) => {
     if (apiConfig.version == "1.4.15") {
         if (object3dWallConfig.show) {
             // 定义一个3D图层
-            const object3Dlayer = new myAMap.Object3DLayer({
+            const object3Dlayer = new AMap.Object3DLayer({
                 zIndex: object3dWallConfig.zIndex,
             })
             // 创建墙体
-            const wall = new myAMap.Object3D.Wall({
+            const wall = new AMap.Object3D.Wall({
                 path: bounds,
                 height: object3dWallConfig.wallHeight,
                 color: object3dWallConfig.color,
@@ -350,7 +359,7 @@ const render3dWall = (bounds = []) => {
     } else if (apiConfig.version == "2.0") {
         // 2.0版本的api通过描边添加墙体
         for (let i = 0; i < bounds.length; i += 1) {
-            new myAMap.Polyline({
+            new AMap.Polyline({
                 path: bounds[i],
                 strokeColor: object3dWallConfig.color,
                 strokeWeight: object3dWallConfig.wallHeight,
@@ -365,7 +374,7 @@ const renderControlBar = () => {
     const { controllBarConfig } = props
     if (controllBarConfig.show) {
         mapInstance.value.addControl(
-            new myAMap.ControlBar({
+            new AMap.ControlBar({
                 showZoomBar: controllBarConfig.showZoomBar,
                 showControlButton: controllBarConfig.showControlButton,
                 position: {
@@ -383,7 +392,7 @@ const renderLine = () => {
     if (isDrawPolyLine) {
         const polyLines = []
         for (let i = 0; i < polyLineData.length; i++) {
-            const polyline = new myAMap.Polyline({
+            const polyline = new AMap.Polyline({
                 // 线条坐标
                 path: polyLineData[i].path,
                 // 是否显示外线
@@ -428,7 +437,7 @@ const renderPoint = () => {
         pointData.forEach((point: any) => {
             const findItem = styles.find(icon => icon.image == point.icon.image)
             if (!findItem) {
-                styles.push({ ...point.icon, anchor: new myAMap.Pixel(15, 35), url: point.icon.image })
+                styles.push({ ...point.icon, anchor: new AMap.Pixel(15, 35), url: point.icon.image })
             }
         })
         // 构造新的点位集合，因为MassMarks对象的点位中必须有lnglat经纬度
@@ -436,7 +445,7 @@ const renderPoint = () => {
         // style为当前点位的图标样式在styles中的索引
         const points = pointData.map((point: any) => ({ ...point, lnglat: point.lngLat, style: styles.findIndex(icon => icon.url === point.icon.image) }))
         // 生成一个海量点图层，第一个参数为点位数据，第二个参数为一个options，选项样式
-        const massMarks = new myAMap.MassMarks(points, {
+        const massMarks = new AMap.MassMarks(points, {
             zIndex: 114,
             zooms: [3, 19],
             style: styles
@@ -444,10 +453,9 @@ const renderPoint = () => {
         // 将当前海量点图层添加到地图上
         massMarks.setMap(mapInstance.value)
         // 点位添加点击事件
-        massMarks.on("click", function ({ data }) {
+        massMarks.on("click", function ({ data }: any) {
             console.log(data)
         })
-        console.log(massMarks)
         massMarks.show = false
         // 渲染批量点位使用MassMarks对象，相当于添加新的图层 - END
     }
@@ -466,12 +474,14 @@ const renderLoca = () => {
     })
 
     // 获取geoJson数据
-    const sourceParams = {}
+    const sourceParams: any = {}
     // sourceType与data.locaData的key的映射关系
     const sourceTypeToDataKey = {
         url: "geoJsonUrl",
         data: "geoJsonData",
     }
+    // 忽略下面这行ts提示
+    // @ts-ignore
     sourceParams[locaConfig.sourceType] = locaData[sourceTypeToDataKey[locaConfig.sourceType]]
     // 读取指定资源
     const geo = new Loca.GeoJSONSource(sourceParams)
@@ -519,9 +529,59 @@ const renderLoca = () => {
     locaInstance.value.animate.start()
 }
 
+//处理动画点位所需的json
+const aniPointJsonData = () => {
+    const features = props.warningList.map((coordinates) => ({
+        type: "Feature",
+        geometry: { type: "Point", coordinates },
+    }))
+    return {
+        data: { type: "FeatureCollection", features },
+    }
+}
+
+// 渲染动态动画点位
+const renderAniPoint = () => {
+    const { isShowPointWarning } = props
+
+    // 红色呼吸点
+    if (isShowPointWarning) {
+        const geoLevelF = new Loca.GeoJSONSource(aniPointJsonData())
+        const breathRed = new Loca.ScatterLayer({
+            loca: locaInstance.value,
+            // 图层显示层级
+            zIndex: 113,
+            // 图层整体透明度
+            opacity: 1,
+            // 图层是否可见
+            visible: true,
+            // 图层缩放等级范围
+            zooms: [2, 22],
+        })
+
+        breathRed.setSource(geoLevelF)
+        breathRed.setStyle({
+            // size 和 borderWidth 的单位，可以是 'px' 和 'meter'，meter 是实际地理的米，px 是屏幕像素。
+            unit: "meter",
+            // 图标长宽，单位取决于 unit 字段
+            // 这里有个小细节，如果unit设置为meter的话，鼠标滚动放大地图，预警点位也会放大
+            // 如果我们想要放大地图，预警点位缩小，uni可以使用px，使用固定大小的像素，size设置像素大小值
+            size: [4000, 4000],
+            // 图标纹理资源
+            texture: breathRedPng,
+            // 一轮动画的时长，单位毫秒(ms)
+            duration: 500,
+            // 是否有动画
+            animate: true,
+        })
+
+        // 启动渲染动画
+        locaInstance.value.animate.start()
+    }
+}
 // 初始化地图
 const initMapInstance = (AMap: any) => {
-    myAMap = AMap
+    AMap = AMap
 
     const option: { [key: string]: any } = {
         mapStyle: props.mapStyle,
@@ -548,11 +608,9 @@ const initMapInstance = (AMap: any) => {
         extensions: props.extensions,
         subdistrict: props.subdistrict
     })
-    console.log(district.search)
     district.search(props.areaName, function (status: string, res: any) {
         const bounds = res.districtList[0]['boundaries'] // 区域边界坐标
         option.mask = bounds.map((i: any) => [i]) // 区域以外添加遮罩
-        console.log(option)
 
         mapInstance.value = new AMap.Map('map', option)
         mapInstance.value.on('click', (e: any) => {
@@ -565,6 +623,7 @@ const initMapInstance = (AMap: any) => {
         renderLine() // 渲染线条
         renderPoint() // 渲染点位
         renderLoca() // 渲染脉冲线
+        renderAniPoint() // 渲染预警点位
     })
 
 }

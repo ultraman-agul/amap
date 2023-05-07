@@ -9,6 +9,9 @@ export default defineConfig({
     imports: ['vue'],
     dts: 'src/auto-import.d.ts'
   })],
+  server: {				// ← ← ← ← ← ←
+    host: '0.0.0.0'	// ← 新增内容 ←
+  },
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src')
